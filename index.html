@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Trading Bot</title>
+  <meta name="description" content="A practice crypto trading bot that uses fake money and live market prices. Runs entirely in your browser.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <h1>📈 Paper Trading Bot</h1>
+      <div class="topbar-right">
+        <span id="feedStatus" class="pill pill-wait" role="status" aria-live="polite">Connecting…</span>
+        <button id="themeBtn" class="btn btn-ghost btn-small" type="button" title="Switch light / dark mode">Theme: Auto</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="banner" role="note">
+    <div class="wrap">
+      <strong>Simulation only — fake money, real prices.</strong>
+      Nothing here is real money and no real orders are ever placed. This is not financial advice.
+      <strong>The bot only runs while this page is open</strong> — close the tab and it stops.
+    </div>
+  </div>
+
+  <main class="wrap">
+    <!-- Summary -->
+    <section class="cards" aria-label="Portfolio summary">
+      <div class="card stat"><div class="stat-label">Total portfolio value</div><div id="statTotal" class="stat-value">–</div></div>
+      <div class="card stat"><div class="stat-label">Cash</div><div id="statCash" class="stat-value">–</div></div>
+      <div class="card stat"><div class="stat-label">Profit / loss</div><div id="statPnl" class="stat-value">–</div><div id="statPnlPct" class="stat-sub">–</div></div>
+      <div class="card stat"><div class="stat-label">Bot</div><div id="statBot" class="stat-value">Stopped</div><div id="statBotSub" class="stat-sub">Press Start to begin</div></div>
+    </section>
+
+    <div class="grid">
+      <!-- Left: chart + tables -->
+      <div class="col-main">
+        <section class="card sec-chart">
+          <div class="card-head">
+            <h2><span id="chartTitle">BTC</span> price</h2>
+            <div class="price-now"><span id="livePrice">–</span></div>
+          </div>
+          <div class="chart-box"><canvas id="chart" aria-label="Live price chart with buy and sell markers" role="img"></canvas></div>
+          <div class="legend">
+            <span><i class="sw sw-price"></i>Price (1-minute)</span>
+            <span id="legendMa" hidden><i class="sw sw-fast"></i>Fast avg <i class="sw sw-slow"></i>Slow avg</span>
+            <span><b class="mk mk-buy">▲</b>Buy</span>
+            <span><b class="mk mk-sell">▼</b>Sell</span>
+          </div>
+        </section>
+
+        <section class="card sec-positions">
+          <h2>Open positions</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Coin</th><th class="num">Amount</th><th class="num">Avg buy price</th><th class="num">Price now</th><th class="num">Value</th><th class="num">Profit / loss</th></tr></thead>
+              <tbody id="positionsBody"></tbody>
+            </table>
+          </div>
+          <p id="positionsEmpty" class="muted">No open positions yet.</p>
+        </section>
+
+        <section class="card sec-trades">
+          <div class="card-head">
+            <h2>Trade log</h2>
+            <div class="btn-row">
+              <button id="exportBtn" class="btn btn-ghost btn-small" type="button">Export trades to CSV</button>
+            </div>
+          </div>
+          <p class="muted small">Every trade pays a simulated <span id="feeText">0.1%</span> fee, like a real exchange.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Coin</th><th>Side</th><th class="num">Price</th><th class="num">Amount</th><th class="num">P/L</th><th>Reason</th></tr></thead>
+              <tbody id="tradesBody"></tbody>
+            </table>
+          </div>
+          <p id="tradesEmpty" class="muted">No trades yet.</p>
+        </section>
+      </div>
+
+      <!-- Right: controls -->
+      <div class="col-side">
+        <section class="card sec-bot">
+          <h2>Bot</h2>
+          <label class="field">
+            <span>Coin to trade</span>
+            <select id="coinSel"></select>
+          </label>
+          <label class="field">
+            <span>Strategy</span>
+            <select id="stratSel"></select>
+          </label>
+          <p id="stratDesc" class="desc"></p>
+
+          <div class="strat-opts" data-strat="ma">
+            <label class="field"><span>Fast average: <b id="maFastVal"></b> min</span><input id="maFast" type="range" min="3" max="50" step="1"></label>
+            <label class="field"><span>Slow average: <b id="maSlowVal"></b> min</span><input id="maSlow" type="range" min="5" max="200" step="1"></label>
+          </div>
+          <div class="strat-opts" data-strat="rsi">
+            <label class="field"><span>Buy when RSI is below <b id="rsiBuyVal"></b></span><input id="rsiBuy" type="range" min="10" max="50" step="1"></label>
+            <label class="field"><span>Sell when RSI is above <b id="rsiSellVal"></b></span><input id="rsiSell" type="range" min="50" max="90" step="1"></label>
+          </div>
+          <div class="strat-opts" data-strat="dca">
+            <label class="field"><span>Amount per buy (<span class="cur"></span>)</span><input id="dcaAmount" type="number" min="1" step="1" inputmode="decimal"></label>
+            <label class="field"><span>Buy every <b id="dcaMinutesVal"></b> minutes</span><input id="dcaMinutes" type="range" min="1" max="120" step="1"></label>
+          </div>
+
+          <div class="strat-opts" data-strat="ma rsi">
+            <label class="field"><span>Amount per trade: <b id="tradePctVal"></b>% of cash</span><input id="tradePct" type="range" min="1" max="100" step="1"></label>
+          </div>
+          <label class="field"><span>Stop-loss: <b id="stopLossVal"></b></span><input id="stopLoss" type="range" min="0" max="30" step="0.5"></label>
+          <label class="field"><span>Take-profit: <b id="takeProfitVal"></b></span><input id="takeProfit" type="range" min="0" max="50" step="0.5"></label>
+          <label class="field">
+            <span>Check the market every</span>
+            <select id="checkSec">
+              <option value="10">10 seconds</option>
+              <option value="30">30 seconds</option>
+              <option value="60">1 minute</option>
+              <option value="300">5 minutes</option>
+              <option value="900">15 minutes</option>
+            </select>
+          </label>
+          <p class="muted small">Stop-loss sells if the price falls this far below your average buy price; take-profit sells once it rises this far above. Set to 0 to switch off.</p>
+
+          <button id="startBtn" class="btn btn-primary btn-big" type="button">▶ Start bot</button>
+          <p id="botMsg" class="bot-msg muted small" aria-live="polite"></p>
+        </section>
+
+        <section class="card sec-manual">
+          <h2>Manual trade</h2>
+          <label class="field">
+            <span>Amount (<span class="cur"></span>) of <b class="coinName">BTC</b></span>
+            <input id="manualAmount" type="number" min="1" step="1" value="500" inputmode="decimal">
+          </label>
+          <div class="btn-row">
+            <button id="buyBtn" class="btn btn-buy" type="button">Buy</button>
+            <button id="sellBtn" class="btn btn-sell" type="button">Sell</button>
+            <button id="sellAllBtn" class="btn btn-ghost" type="button">Sell all</button>
+          </div>
+          <p id="manualMsg" class="muted small" aria-live="polite"></p>
+        </section>
+
+        <section class="card sec-account">
+          <h2>Account</h2>
+          <p class="muted small">Change these and press Reset to start again with a fresh fake balance.</p>
+          <label class="field"><span>Starting balance</span><input id="startBal" type="number" min="100" step="100" inputmode="decimal"></label>
+          <label class="field">
+            <span>Currency</span>
+            <select id="currencySel">
+              <option value="GBP">£ British pound (GBP)</option>
+              <option value="USD">$ US dollar (USD)</option>
+              <option value="EUR">€ Euro (EUR)</option>
+            </select>
+          </label>
+          <button id="resetBtn" class="btn btn-danger" type="button">Reset everything</button>
+          <p class="muted small">Your portfolio, settings and trades are saved in this browser only.</p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="wrap footer muted small">
+    Prices: <span id="sourceText">–</span>. Paper trading for learning only — not financial advice. No real money, accounts or orders.
+  </footer>
+
+  <script src="core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
